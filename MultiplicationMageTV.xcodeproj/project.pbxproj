@@ -101,7 +101,7 @@
 			path = Views;
 			sourceTree = "<group>";
 		};
-		AAFFFFFF /* = */ = {
+		AAFFFFFF = {
 			isa = PBXGroup;
 			children = (
 				AA500002 /* MultiplicationMageTV */,
@@ -315,6 +315,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"MultiplicationMageTV/Preview Content\"";
+				DEVELOPMENT_TEAM = 4Y734G9549;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MultiplicationMageTV/Info.plist;
@@ -338,6 +339,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"MultiplicationMageTV/Preview Content\"";
+				DEVELOPMENT_TEAM = 4Y734G9549;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MultiplicationMageTV/Info.plist;
@@ -375,7 +377,6 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
-
 	};
 	rootObject = AA800000 /* Project object */;
 }
