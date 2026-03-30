@@ -27,8 +27,6 @@ final class GameWebViewController: UIViewController {
     private var loadingView: UIView!
     private var loadingLabel: UILabel!
 
-    // MARK: Init
-
     init(game: Game, controllerManager: GameControllerManager) {
         self.game = game
         self.controllerManager = controllerManager
@@ -93,7 +91,6 @@ final class GameWebViewController: UIViewController {
             stack.centerXAnchor.constraint(equalTo: loadingView.centerXAnchor),
             stack.centerYAnchor.constraint(equalTo: loadingView.centerYAnchor)
         ])
-
         view.addSubview(loadingView)
     }
 
@@ -104,7 +101,7 @@ final class GameWebViewController: UIViewController {
         webView.load(request)
     }
 
-    // MARK: - Controller → JS Bridge
+    // MARK: - Controller → Bridge
 
     private func wireControllerCallbacks() {
         controllerManager.onKeyDown = { [weak self] keyCode in
@@ -113,14 +110,21 @@ final class GameWebViewController: UIViewController {
         controllerManager.onKeyUp = { [weak self] keyCode in
             self?.injectKeyEvent(keyCode: keyCode, type: "keyup")
         }
+        controllerManager.onGamepadButton = { [weak self] buttonIndex, pressed in
+            self?.setVirtualGamepadButton(buttonIndex, pressed: pressed)
+        }
+        controllerManager.onGamepadAxis = { [weak self] axisIndex, value in
+            self?.setVirtualGamepadAxis(axisIndex, value: value)
+        }
     }
 
+    // MARK: - Keyboard injection (left / right / jump)
+
     private func injectKeyEvent(keyCode: Int, type: String) {
-        let keyString = keyCodeToKey(keyCode)
         let js = """
         (function() {
             var opts = {
-                key: '\(keyString)',
+                key: '\(keyCodeToKey(keyCode))',
                 keyCode: \(keyCode),
                 which: \(keyCode),
                 code: '\(keyCodeToCode(keyCode))',
@@ -134,7 +138,83 @@ final class GameWebViewController: UIViewController {
         webView.evaluateJavaScript(js, completionHandler: nil)
     }
 
-    /// Maps common game keyCodes to their `key` string.
+    // MARK: - Virtual Gamepad injection (fire / attack)
+
+    /// Injects a virtual gamepad into navigator.getGamepads() so the game's
+    /// native Construct Gamepad plugin picks it up on its next tick poll.
+    private func injectVirtualGamepad() {
+        let js = """
+        (function() {
+            if (window.__virtualGamepadInstalled) return;
+            window.__virtualGamepadInstalled = true;
+
+            const NUM_BUTTONS = 17;
+            const NUM_AXES = 4;
+
+            // Mutable state arrays
+            window.__vgpButtons = Array.from({length: NUM_BUTTONS}, () => ({
+                pressed: false, touched: false, value: 0.0
+            }));
+            window.__vgpAxes = new Array(NUM_AXES).fill(0.0);
+
+            const virtualGamepad = {
+                id: "Virtual Controller",
+                index: 0,
+                connected: true,
+                timestamp: performance.now(),
+                mapping: "standard",
+                get buttons() { return window.__vgpButtons; },
+                get axes() { return window.__vgpAxes; }
+            };
+
+            // Override getGamepads - return virtual as index 0 if no real pad present
+            const _origGetGamepads = navigator.getGamepads.bind(navigator);
+            Object.defineProperty(navigator, 'getGamepads', {
+                configurable: true,
+                value: function() {
+                    const real = _origGetGamepads();
+                    const realConnected = Array.from(real).filter(g => g && g.connected);
+                    if (realConnected.length > 0) return real;
+                    return [virtualGamepad];
+                }
+            });
+
+            // Tell the game a gamepad connected
+            setTimeout(function() {
+                window.dispatchEvent(new GamepadEvent('gamepadconnected', { gamepad: virtualGamepad }));
+            }, 300);
+
+            // API for Swift to update state
+            window.__setVGPButton = function(index, pressed) {
+                if (index < 0 || index >= NUM_BUTTONS) return;
+                window.__vgpButtons[index] = { pressed: pressed, touched: pressed, value: pressed ? 1.0 : 0.0 };
+                virtualGamepad.timestamp = performance.now();
+            };
+
+            window.__setVGPAxis = function(index, value) {
+                if (index < 0 || index >= NUM_AXES) return;
+                window.__vgpAxes[index] = value;
+                virtualGamepad.timestamp = performance.now();
+            };
+
+            console.log('[MathGames] Virtual gamepad installed');
+        })();
+        """
+        webView.evaluateJavaScript(js, completionHandler: nil)
+    }
+
+    private func setVirtualGamepadButton(_ index: Int, pressed: Bool) {
+        let js = "if(window.__setVGPButton) window.__setVGPButton(\(index), \(pressed ? "true" : "false"));"
+        webView.evaluateJavaScript(js, completionHandler: nil)
+    }
+
+    private func setVirtualGamepadAxis(_ index: Int, value: Float) {
+        let js = "if(window.__setVGPAxis) window.__setVGPAxis(\(index), \(value));"
+        webView.evaluateJavaScript(js, completionHandler: nil)
+    }
+
+    // MARK: - Key name helpers
+
     private func keyCodeToKey(_ keyCode: Int) -> String {
         switch keyCode {
         case 37: return "ArrowLeft"
@@ -142,8 +222,6 @@ final class GameWebViewController: UIViewController {
         case 39: return "ArrowRight"
         case 40: return "ArrowDown"
         case 32: return " "
-        case 90: return "z"
-        case 88: return "x"
         default: return ""
         }
     }
@@ -155,8 +233,6 @@ final class GameWebViewController: UIViewController {
         case 39: return "ArrowRight"
         case 40: return "ArrowDown"
         case 32: return "Space"
-        case 90: return "KeyZ"
-        case 88: return "KeyX"
         default: return ""
         }
     }
@@ -166,7 +242,10 @@ final class GameWebViewController: UIViewController {
 
 extension GameWebViewController: WKNavigationDelegate {
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        UIView.animate(withDuration: 0.4, delay: 0.5) {
+        // Install virtual gamepad after page loads
+        injectVirtualGamepad()
+
+        UIView.animate(withDuration: 0.4, delay: 0.8) {
             self.loadingView.alpha = 0
         } completion: { _ in
             self.loadingView.isHidden = true
